@@ -1,0 +1,15 @@
+version: "3"
+services:
+
+  server:
+    image: fileserver
+    container_name: 'fileserver'
+    build: ./
+    ports:
+      - "8088:8088"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:file:./users;MODE=PostgreSQL
+      SPRING_DATASOURCE_USERNAME: adminFileServer
+      SPRING_DATASOURCE_PASSWORD: passwordServer
+      SPRING_DATASOURCE_DRIVER: org.h2.Driver
+
