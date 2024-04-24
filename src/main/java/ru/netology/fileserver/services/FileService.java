@@ -1,7 +1,9 @@
 package ru.netology.fileserver.services;
 
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.query.criteria.internal.expression.function.CurrentDateFunction;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.netology.fileserver.dto.requests.InputFileRequest;
@@ -37,6 +39,7 @@ public class FileService {
     public FileActionResponse addFile(String token, InputFileRequest fileRequest) throws Exception {
         User user = getUserFromToken(token);
         if (fileRequest.file().getSize() > SIZE) {
+            log.error("File size is very big.");
             throw new CreateFileException("File size is very big.");
         } else {
             String mainDir = new File(FileService.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent() + "/files";
@@ -69,6 +72,7 @@ public class FileService {
 
     @Transactional(rollbackFor = {FileRenameException.class})
     public FileActionResponse renameFile(String token, String oldFileName, String newFileName) throws FileNotFoundException {
+        log.debug("Start renaming file \"" + oldFileName + "\".");
         User user = getUserFromToken(token);
         Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, oldFileName);
         if (opt.isPresent()) {
@@ -105,6 +109,7 @@ public class FileService {
 
     @Transactional(rollbackFor = {FileRemoveException.class})
     public FileActionResponse removeFile(String token, String fileName) throws FileNotFoundException {
+        log.debug("Start remove file \"" + fileName + "\".");
         User user = getUserFromToken(token);
         Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, fileName);
         if (opt.isPresent()) {
@@ -121,7 +126,7 @@ public class FileService {
             fileRepository.deleteById(opt.get().getId());
             log.error("File \"" + fileName + "\" not found on disk!");
         } else {
-            log.error("File \"" + fileName + "\" not found in database!", new FileNotFoundException());
+            log.error("File \"" + fileName + "\" not found in database!");
         }
         throw new FileNotFoundException("File \"" + fileName + "\" not found!");
     }
@@ -129,15 +134,19 @@ public class FileService {
     @Transactional
     public List<FileInfoResponse> getAllUserFiles(Integer limit, String token) {
         User user = getUserFromToken(token);
+        log.debug("Get list of files for user " + user.getUsername());
         List<FileEntity> fileList = fileRepository.findFileEntitiesByUser(user).orElse(Collections.emptyList());
         if (!fileList.isEmpty()) {
             List<FileInfoResponse> list = fileList.stream().map(st -> new FileInfoResponse(st.getFilename(), st.getFileSize())).toList();
             if (list.size() > limit) {
+                log.debug("Return list of files to " + user.getUsername());
                 return list.subList(0, limit);
             } else {
+                log.debug("Return list of files to " + user.getUsername());
                 return list;
             }
         }
+        log.debug("Files not found.");
         return Collections.emptyList();
     }
 
@@ -149,6 +158,7 @@ public class FileService {
     @Transactional
     public byte[] getFile(String token, String fileName) throws FileNotFoundException {
         User user = getUserFromToken(token);
+        log.debug("Start send file \"" + fileName + "\" from file-server to user " + user.getUsername());
         Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, fileName);
         if (opt.isPresent()) {
             File file = findFileOnDisk(opt.get());
