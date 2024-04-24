@@ -33,6 +33,10 @@ public class ErrorController {
 
     @ExceptionHandler(CreateFileException.class)
     public ResponseEntity<Exception> handleCreateFile(CreateFileException e) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new Exception(400, e.getMessage()));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new Exception(500, e.getMessage()));
+    }
+    @ExceptionHandler(FileRenameException.class)
+    public ResponseEntity<Exception> handleRenameFile(FileRenameException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new Exception(500, e.getMessage()));
     }
 }

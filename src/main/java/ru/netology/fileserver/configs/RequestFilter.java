@@ -29,12 +29,10 @@ public class RequestFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request
             , HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String authHeader = request.getHeader("auth-token");
-//        System.out.println(authHeader);
         String username = null;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String jwt = authHeader.substring(7);
             try {
-                username = jwtTokenUtil.getUsername(jwt);
+                username = jwtTokenUtil.getUsername(authHeader);
             } catch (ExpiredJwtException e) {
                 log.error("Время жизни токена вышло");
                 throw new UnauthorizedException("Время жизни токена вышло");

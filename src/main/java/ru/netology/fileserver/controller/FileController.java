@@ -5,7 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.netology.fileserver.dto.requests.InputFileRequest;
 import ru.netology.fileserver.dto.requests.RenameRequest;
-import ru.netology.fileserver.exceptions.CreateFileException;
 import ru.netology.fileserver.services.FileService;
 
 import java.io.FileNotFoundException;
@@ -22,12 +21,12 @@ public class FileController {
     }
 
     @PostMapping("/file")
-    public ResponseEntity<?> addFile(@RequestHeader("auth-token") String token, InputFileRequest inputFileRequest) throws CreateFileException {
+    public ResponseEntity<?> addFile(@RequestHeader("auth-token") String token, InputFileRequest inputFileRequest) throws Exception {
         return ResponseEntity.ok(fileService.addFile(token, inputFileRequest));
     }
 
     @PutMapping(value = "/file")
-    public ResponseEntity<?> renameFile(@RequestHeader("auth-token") String token, @RequestParam ("filename") String oldFilename, @RequestBody RenameRequest renameRequest) throws FileNotFoundException, ru.netology.fileserver.exceptions.FileNotFoundException {
+    public ResponseEntity<?> renameFile(@RequestHeader("auth-token") String token, @RequestParam ("filename") String oldFilename, @RequestBody RenameRequest renameRequest) throws ru.netology.fileserver.exceptions.FileNotFoundException {
         return ResponseEntity.ok(fileService.renameFile(token, oldFilename, renameRequest.filename()));
     }
 

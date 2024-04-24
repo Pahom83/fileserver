@@ -2,27 +2,18 @@ package ru.netology.fileserver.services;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
+import org.springframework.transaction.annotation.Transactional;
 import ru.netology.fileserver.dto.requests.InputFileRequest;
 import ru.netology.fileserver.dto.responses.FileActionResponse;
 import ru.netology.fileserver.dto.responses.FileInfoResponse;
-import ru.netology.fileserver.dto.responses.OutputFile;
 import ru.netology.fileserver.entities.FileEntity;
 import ru.netology.fileserver.entities.User;
-import ru.netology.fileserver.exceptions.CreateFileException;
-import ru.netology.fileserver.exceptions.FileNotFoundException;
-import ru.netology.fileserver.exceptions.FileRemoveException;
-import ru.netology.fileserver.exceptions.UnauthorizedException;
+import ru.netology.fileserver.exceptions.*;
 import ru.netology.fileserver.repositories.FileRepository;
 import ru.netology.fileserver.repositories.UserRepository;
 import ru.netology.fileserver.utils.JWTTokenUtil;
 
-import javax.transaction.Transactional;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -31,24 +22,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class FileService {
-
+    private static final int SIZE = 10485760;
     private final FileRepository fileRepository;
     private final JWTTokenUtil util;
     private final UserRepository userRepository;
 
-    @Transactional
-    public FileActionResponse addFile(String token, InputFileRequest fileRequest) throws CreateFileException {
+    @Transactional(rollbackFor = {CreateFileException.class})
+    public FileActionResponse addFile(String token, InputFileRequest fileRequest) throws Exception {
         User user = getUserFromToken(token);
-        if (fileRequest.file().getSize() > 1024 * 1024 * 10) {
+        if (fileRequest.file().getSize() > SIZE) {
             throw new CreateFileException("File size is very big.");
         } else {
+            String mainDir = new File(FileService.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent() + "/files";
             FileEntity fileEntity = new FileEntity();
-            String mainDir = getJarPath(getClass()) + "/files";
             fileEntity.setFilename(fileRequest.filename());
             fileEntity.setFileSize(fileRequest.file().getSize());
             fileEntity.setUser(user);
@@ -75,75 +67,78 @@ public class FileService {
         }
     }
 
-    @Transactional
+    @Transactional(rollbackFor = {FileRenameException.class})
     public FileActionResponse renameFile(String token, String oldFileName, String newFileName) throws FileNotFoundException {
         User user = getUserFromToken(token);
-        if (fileRepository.findFileEntitiesByUserAndFilename(user, oldFileName).isPresent()) {
-            FileEntity fileEntityInDb = fileRepository.findFileEntitiesByUserAndFilename(user, oldFileName).get();
-            File localFile = findFileOnDisk(fileEntityInDb.getFilePath(), fileEntityInDb.getFilename());
-            File renamedFile = new File(fileEntityInDb.getFilePath() + "/" + newFileName);
+        Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, oldFileName);
+        if (opt.isPresent()) {
+            FileEntity fileEntity = opt.get();
+            File localFile = findFileOnDisk(fileEntity);
+            File renamedFile = new File(fileEntity.getFilePath() + "/" + newFileName);
             if (localFile != null) {
                 if (localFile.renameTo(renamedFile)) {
-                    fileEntityInDb.setFilename(newFileName);
-                    fileRepository.save(fileEntityInDb);
+                    fileEntity.setFilename(newFileName);
+                    fileRepository.save(fileEntity);
                     log.debug("File \"" + oldFileName + "\" renamed successfully.");
                     return new FileActionResponse(oldFileName, "renamed");
+                } else {
+                    log.error("Rename file \"" + oldFileName + "\" failed");
+                    throw new FileRenameException("Rename file \"" + oldFileName + "\" failed");
                 }
             } else {
-                log.error("File \"" + oldFileName + "\" not found!");
-                fileRepository.deleteById(fileEntityInDb.getId());
+                log.error("File \"" + oldFileName + "\" not found on disk!");
+                fileRepository.deleteById(fileEntity.getId());
                 log.debug("File record was deleted from database.");
-                throw new FileNotFoundException("File not found!");
             }
         }
         log.error("File \"" + oldFileName + "\" not found in database!");
         throw new FileNotFoundException("File \"" + oldFileName + "\" not found!");
     }
 
-    private File findFileOnDisk(String filePath, String filename) {
-        File file = new File(filePath + "/" + filename);
+    private File findFileOnDisk(FileEntity fileEntity) {
+        File file = new File(fileEntity.getFilePath() + "/" + fileEntity.getFilename());
         if (file.exists()) {
             return file;
         }
         return null;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = {FileRemoveException.class})
     public FileActionResponse removeFile(String token, String fileName) throws FileNotFoundException {
         User user = getUserFromToken(token);
-        if (checkFileInDb(user, fileName)) {
-            File file = findFileOnDisk(fileRepository
-                    .findFileEntitiesByUserAndFilename(user, fileName).get().getFilePath(), fileName);
+        Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, fileName);
+        if (opt.isPresent()) {
+            File file = findFileOnDisk(opt.get());
             if (file != null) {
                 if (file.delete()) {
-                    fileRepository.deleteById(fileRepository.findFileEntitiesByUserAndFilename(user, fileName).get().getId());
+                    fileRepository.deleteById(opt.get().getId());
                     log.debug("File \"" + fileName + "\" deleted successfully");
                     return new FileActionResponse(fileName, "deleted");
                 } else {
                     throw new FileRemoveException("File delete error!");
                 }
             }
-            fileRepository.deleteById(fileRepository.findFileEntitiesByUserAndFilename(user, fileName).get().getId());
-            log.error("File \"" + fileName + "\" not found on disk!", new FileNotFoundException());
-            throw new FileNotFoundException("File \"" + fileName + "\" not found!");
+            fileRepository.deleteById(opt.get().getId());
+            log.error("File \"" + fileName + "\" not found on disk!");
         } else {
             log.error("File \"" + fileName + "\" not found in database!", new FileNotFoundException());
-            throw new FileNotFoundException("File \"" + fileName + "\" not found!");
         }
+        throw new FileNotFoundException("File \"" + fileName + "\" not found!");
     }
 
+    @Transactional
     public List<FileInfoResponse> getAllUserFiles(Integer limit, String token) {
         User user = getUserFromToken(token);
         List<FileEntity> fileList = fileRepository.findFileEntitiesByUser(user).orElse(Collections.emptyList());
-        if (fileList.isEmpty()) {
-            return Collections.emptyList();
+        if (!fileList.isEmpty()) {
+            List<FileInfoResponse> list = fileList.stream().map(st -> new FileInfoResponse(st.getFilename(), st.getFileSize())).toList();
+            if (list.size() > limit) {
+                return list.subList(0, limit);
+            } else {
+                return list;
+            }
         }
-        List<FileInfoResponse> list = fileList.stream().map(st -> new FileInfoResponse(st.getFilename(), st.getFileSize())).toList();
-        if (list.size() > limit) {
-            return list.subList(0, limit);
-        } else {
-            return list;
-        }
+        return Collections.emptyList();
     }
 
     private User getUserFromToken(String token) {
@@ -151,34 +146,23 @@ public class FileService {
                 .orElseThrow(() -> new UnauthorizedException(util.getUsername(token)));
     }
 
-    public static String getJarPath(Class aclass) {
-        try {
-            return new File(aclass.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
-        } catch (Exception e) {
-            log.debug(e.getMessage());
-        }
-        return null;
-    }
-
-    public byte[] getFile(String token, String filename) throws FileNotFoundException {
+    @Transactional
+    public byte[] getFile(String token, String fileName) throws FileNotFoundException {
         User user = getUserFromToken(token);
-        if (checkFileInDb(user, filename)) {
-            File file = findFileOnDisk(fileRepository.findFileEntitiesByUserAndFilename(user, filename).get().getFilePath(), filename);
+        Optional<FileEntity> opt = fileRepository.findFileEntitiesByUserAndFilename(user, fileName);
+        if (opt.isPresent()) {
+            File file = findFileOnDisk(opt.get());
             if (file != null){
-
                try (FileInputStream fis = new FileInputStream(file)) {
+                   log.debug("File \"" + fileName + "\" sends.");
                    return fis.readAllBytes();
                 } catch (IOException e) {
                     log.error(e.getMessage());
                 }
-                log.debug("File \"" + filename + "\" sends.");
             }
         }
-        throw new FileNotFoundException("File \"" + filename + "\" not found!");
-    }
-
-    private boolean checkFileInDb(User user, String filename) {
-        return fileRepository.findFileEntitiesByUserAndFilename(user, filename).isPresent();
+        log.error("File \"" + fileName + "\" not found!");
+        throw new FileNotFoundException("File \"" + fileName + "\" not found!");
     }
 
 }
