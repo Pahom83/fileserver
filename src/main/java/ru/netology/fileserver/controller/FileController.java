@@ -7,8 +7,6 @@ import ru.netology.fileserver.dto.requests.InputFileRequest;
 import ru.netology.fileserver.dto.requests.RenameRequest;
 import ru.netology.fileserver.services.FileService;
 
-import java.io.FileNotFoundException;
-
 @RestController
 @RequiredArgsConstructor
 public class FileController {
